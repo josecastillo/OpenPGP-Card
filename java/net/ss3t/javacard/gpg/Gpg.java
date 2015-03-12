@@ -199,6 +199,7 @@ public final class Gpg extends Applet {
     name = new byte[(short) 40];
     language = new byte[(short) 9];
     sex = new byte[(short) 1];
+    sex[0] = (byte) 0x39;
     fingerprints = new byte[(short) 60];
     caFingerprints = new byte[(short) 60];
     generationDates = new byte[(short) 12];
@@ -1224,7 +1225,7 @@ public final class Gpg extends Applet {
     Util.arrayFillNonAtomic(url, (short)0, (short)url.length, (byte)0);
     Util.arrayFillNonAtomic(name, (short)0, (short)name.length, (byte)0);
     Util.arrayFillNonAtomic(language, (short)0, (short)language.length, (byte)0);
-    sex[0] = 0;
+    sex[0] = (byte) 0x39;
     Util.arrayFillNonAtomic(fingerprints, (short)0, (short)fingerprints.length, (byte)0);
     Util.arrayFillNonAtomic(caFingerprints, (short)0, (short)caFingerprints.length, (byte)0);
     Util.arrayFillNonAtomic(generationDates, (short)0, (short)generationDates.length, (byte)0);
