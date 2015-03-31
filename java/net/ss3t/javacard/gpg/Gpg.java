@@ -888,7 +888,7 @@ public final class Gpg extends Applet {
 
   private short addKeyPart(byte[] data, short offset) {
     return addKeyPart(commandChainingBuffer[TEMP_PUT_KEY_KEY_CHUNK], data, offset,
-                      securityEnvironments[currentEnvironment[0]].getKey(commandChainingBuffer[TEMP_PUT_KEY_KEY_TYPE]));
+                      securityEnvironments[currentEnvironment[0]].getOrInstantiateKey(commandChainingBuffer[TEMP_PUT_KEY_KEY_TYPE]));
   }
 
   /**
@@ -936,7 +936,7 @@ public final class Gpg extends Applet {
       pos = (short) (ISO7816.OFFSET_CDATA + expectedRSAKeyImportFormat.length);
       // Clear the existing key.
       JCSystem.beginTransaction();
-      KeyPair key = securityEnvironments[currentEnvironment[0]].getKey(commandChainingBuffer[TEMP_PUT_KEY_KEY_TYPE]);
+      KeyPair key = securityEnvironments[currentEnvironment[0]].getOrInstantiateKey(commandChainingBuffer[TEMP_PUT_KEY_KEY_TYPE]);
       key.getPrivate().clearKey();
       key.getPublic().clearKey();
       if (commandChainingBuffer[TEMP_PUT_KEY_KEY_TYPE] == (byte) 0xB6) {
@@ -1021,7 +1021,8 @@ public final class Gpg extends Applet {
     if (!pinSubmitted[PIN_INDEX_PW1] || !pins[PIN_INDEX_PW1].isValidated()) {
       ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
     }
-    if (!securityEnvironments[currentEnvironment[0]].getSignatureKey().getPrivate().isInitialized()) {
+    if (securityEnvironments[currentEnvironment[0]].getSignatureKey() == null ||
+        !securityEnvironments[currentEnvironment[0]].getSignatureKey().getPrivate().isInitialized()) {
       ISOException.throwIt(ISO7816.SW_FILE_NOT_FOUND);
     }
     if (pinValidForMultipleSignatures == (byte) 0) {
@@ -1041,7 +1042,8 @@ public final class Gpg extends Applet {
     if (!pins[PIN_INDEX_PW1].isValidated() || !pinSubmitted[1]) {
       ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
     }
-    if (!securityEnvironments[currentEnvironment[0]].getConfidentialityKey().getPrivate().isInitialized()) {
+    if (securityEnvironments[currentEnvironment[0]].getConfidentialityKey() == null ||
+        !securityEnvironments[currentEnvironment[0]].getConfidentialityKey().getPrivate().isInitialized()) {
       ISOException.throwIt(ISO7816.SW_FILE_NOT_FOUND);
     }
     boolean firstCommand = (commandChainingBuffer[TEMP_INS] != buffer[ISO7816.OFFSET_INS]);
@@ -1086,7 +1088,8 @@ public final class Gpg extends Applet {
     if (len > (short) 102 || len != (buffer[ISO7816.OFFSET_LC] & 0xFF)) {
       ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
     }
-    if (!securityEnvironments[currentEnvironment[0]].getAuthenticationKey().getPrivate().isInitialized()) {
+    if (securityEnvironments[currentEnvironment[0]].getAuthenticationKey() == null ||
+        !securityEnvironments[currentEnvironment[0]].getAuthenticationKey().getPrivate().isInitialized()) {
       ISOException.throwIt(ISO7816.SW_FILE_NOT_FOUND);
     }
     cipherRSA.init(securityEnvironments[currentEnvironment[0]].getAuthenticationKey().getPrivate(),
@@ -1103,7 +1106,7 @@ public final class Gpg extends Applet {
     if (apdu.setIncomingAndReceive() != 2) {
       ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
     }
-    KeyPair key = securityEnvironments[currentEnvironment[0]].getKey(buffer[ISO7816.OFFSET_CDATA]);
+    KeyPair key = securityEnvironments[currentEnvironment[0]].getOrInstantiateKey(buffer[ISO7816.OFFSET_CDATA]);
     if (buffer[ISO7816.OFFSET_P1] == (byte) 0x81) {
       if (!(key.getPublic()).isInitialized()) {
         ISOException.throwIt(ISO7816.SW_FILE_NOT_FOUND);

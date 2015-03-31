@@ -3,36 +3,53 @@ package net.ss3t.javacard.gpg;
 import javacard.framework.*;
 import javacard.security.KeyPair;
 
+import java.util.Arrays;
+
 /**
  * Created by castillo on 3/31/15.
+ *
+ * This class encapsulates cryptographic tasks in a security environment. By default, the environment
+ * contains no keys or metadata; these are lazily instantiated when requested.
  */
 public class SecurityEnvironment extends Object {
-  private final KeyPair signatureKey;
-  private final KeyPair confidentialityKey;
-  private final KeyPair authenticationKey;
-  private final byte[] fingerprints;
-  private final byte[] generationDates;
-  private final byte[] signatureCounter;
+  private KeyPair signatureKey;
+  private KeyPair confidentialityKey;
+  private KeyPair authenticationKey;
+  private byte[] fingerprints;
+  private byte[] generationDates;
+  private byte[] signatureCounter;
+
+  private final static byte[] defaultFingerprints = {
+          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+  };
+
+  private final static byte[] defaultGenerationDates = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+
+  private final static byte[] defaultSignatureCounter = {0, 0, 0};
 
   public SecurityEnvironment() {
-    signatureKey = new KeyPair(KeyPair.ALG_RSA_CRT, (short) 2048);
-    confidentialityKey = new KeyPair(KeyPair.ALG_RSA_CRT, (short) 2048);
-    authenticationKey = new KeyPair(KeyPair.ALG_RSA_CRT, (short) 2048);
-    fingerprints = new byte[(short) 60];
-    generationDates = new byte[(short) 12];
-    signatureCounter = new byte[(short) 3];
   }
 
   public void clear() {
-    signatureKey.getPrivate().clearKey();
-    signatureKey.getPublic().clearKey();
-    confidentialityKey.getPrivate().clearKey();
-    confidentialityKey.getPublic().clearKey();
-    authenticationKey.getPrivate().clearKey();
-    authenticationKey.getPublic().clearKey();
-    Util.arrayFillNonAtomic(fingerprints, (short) 0, (short) fingerprints.length, (byte) 0);
-    Util.arrayFillNonAtomic(generationDates, (short)0, (short)generationDates.length, (byte)0);
-    Util.arrayFillNonAtomic(signatureCounter, (short)0, (short)signatureCounter.length, (byte)0);
+    if (signatureKey != null) {
+      signatureKey.getPrivate().clearKey();
+      signatureKey.getPublic().clearKey();
+      Util.arrayFillNonAtomic(signatureCounter, (short) 0, (short) signatureCounter.length, (byte) 0);
+    }
+    if (confidentialityKey != null) {
+      confidentialityKey.getPrivate().clearKey();
+      confidentialityKey.getPublic().clearKey();
+    }
+    if (authenticationKey != null) {
+      authenticationKey.getPrivate().clearKey();
+      authenticationKey.getPublic().clearKey();
+    }
+    if (fingerprints != null) {
+      Util.arrayFillNonAtomic(fingerprints, (short) 0, (short) fingerprints.length, (byte) 0);
+      Util.arrayFillNonAtomic(generationDates, (short) 0, (short) generationDates.length, (byte) 0);
+    }
   }
 
   public KeyPair getSignatureKey() {
@@ -48,14 +65,20 @@ public class SecurityEnvironment extends Object {
   }
 
   public byte[] getFingerprints() {
+    if (fingerprints == null)
+      return defaultFingerprints;
     return fingerprints;
   }
 
   public byte[] getGenerationDates() {
+    if (generationDates == null)
+      return defaultGenerationDates;
     return generationDates;
   }
 
   public byte[] getSignatureCounter() {
+    if (signatureCounter == null)
+      return defaultSignatureCounter;
     return signatureCounter;
   }
 
@@ -95,13 +118,31 @@ public class SecurityEnvironment extends Object {
     JCSystem.commitTransaction();
   }
 
-  public KeyPair getKey(byte type) {
+  public KeyPair getOrInstantiateKey(byte type) {
+    if (fingerprints == null) {
+      JCSystem.beginTransaction();
+      fingerprints = new byte[(short) 60];
+      generationDates = new byte[(short) 12];
+      JCSystem.commitTransaction();
+    }
     switch (type) {
       case (byte) 0xB6:
+        if (signatureKey == null) {
+          JCSystem.beginTransaction();
+          signatureKey = new KeyPair(KeyPair.ALG_RSA_CRT, (short) 2048);
+          signatureCounter = new byte[(short) 3];
+          JCSystem.commitTransaction();
+        }
         return signatureKey;
       case (byte) 0xB8:
+        if (confidentialityKey == null) {
+          confidentialityKey = new KeyPair(KeyPair.ALG_RSA_CRT, (short) 2048);
+        }
         return confidentialityKey;
       case (byte) 0xA4:
+        if (authenticationKey == null) {
+          authenticationKey = new KeyPair(KeyPair.ALG_RSA_CRT, (short) 2048);
+        }
         return authenticationKey;
     }
     ISOException.throwIt(ISO7816.SW_DATA_INVALID);
