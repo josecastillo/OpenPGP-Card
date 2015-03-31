@@ -155,18 +155,16 @@ public final class Gpg extends Applet {
   private final byte[] name;
   private final byte[] language;
   private final byte[] sex;
-  private final byte[] fingerprints;
   private final byte[] caFingerprints;
-  private final byte[] generationDates;
-  private final byte[] signatureCounter;
   private byte pinValidForMultipleSignatures;
   private final byte[] commandChainingBuffer;
-  private final KeyPair signatureKey;
-  private final KeyPair confidentialityKey;
-  private final KeyPair authenticationKey;
+  private final SecurityEnvironment[] securityEnvironments;
+  private byte currentEnvironment[];
   private final Cipher cipherRSA;
   private final RandomData randomData;
   private boolean terminated = false;
+
+  private static Gpg sharedInstance;
 
   /**
    * Only this class's install method should create the applet object.
@@ -200,19 +198,22 @@ public final class Gpg extends Applet {
     language = new byte[(short) 9];
     sex = new byte[(short) 1];
     sex[0] = (byte) 0x39;
-    fingerprints = new byte[(short) 60];
     caFingerprints = new byte[(short) 60];
-    generationDates = new byte[(short) 12];
-    signatureCounter = new byte[(short) 3];
     pinValidForMultipleSignatures = (byte) 0;
 
-    signatureKey = new KeyPair(KeyPair.ALG_RSA_CRT, (short) 2048);
-    confidentialityKey = new KeyPair(KeyPair.ALG_RSA_CRT, (short) 2048);
-    authenticationKey = new KeyPair(KeyPair.ALG_RSA_CRT, (short) 2048);
+    securityEnvironments = new SecurityEnvironment[20];
+    securityEnvironments[0] = new SecurityEnvironment();
+    currentEnvironment = JCSystem.makeTransientByteArray((short) 1, JCSystem.CLEAR_ON_DESELECT);
     cipherRSA = Cipher.getInstance(Cipher.ALG_RSA_PKCS1, false);
     randomData = RandomData.getInstance(RandomData.ALG_SECURE_RANDOM);
 
+    Gpg.sharedInstance = this;
+
     register();
+  }
+
+  public static Gpg getSharedInstance() {
+    return sharedInstance;
   }
 
   /**
@@ -273,6 +274,7 @@ public final class Gpg extends Applet {
 
     if (selectingApplet()) {
       short aidLength = JCSystem.getAID().getBytes(buffer, (short) 4);
+      currentEnvironment[0] = 0;
       buffer[0] = 0x6F;
       buffer[1] = (byte) (2 + aidLength);
       buffer[2] = (byte) 0x84;
@@ -571,12 +573,14 @@ public final class Gpg extends Applet {
         break;
 
       case 0x7A:
-        offset = addShortTLV((short) 0x93, signatureCounter, buffer, offset);
+        offset = addShortTLV((short) 0x93, securityEnvironments[currentEnvironment[0]].getSignatureCounter(),
+                             buffer, offset);
         break;
 
       case 0x93:
-        offset = Util.arrayCopyNonAtomic(signatureCounter, (short) 0, buffer, (short) 0,
-                                         (short) signatureCounter.length);
+        offset = Util.arrayCopyNonAtomic(securityEnvironments[currentEnvironment[0]].getSignatureCounter(),
+                                         (short) 0, buffer, (short) 0,
+                                         (short) securityEnvironments[currentEnvironment[0]].getSignatureCounter().length);
         break;
 
       case 0xC0:
@@ -596,8 +600,9 @@ public final class Gpg extends Applet {
         break;
 
       case 0xC5:
-        offset = Util.arrayCopyNonAtomic(fingerprints, (short) 0, buffer, (short) 0,
-                                         (short) fingerprints.length);
+        offset = Util.arrayCopyNonAtomic(securityEnvironments[currentEnvironment[0]].getFingerprints(), (short) 0, buffer,
+                                         (short) 0,
+                                         (short) securityEnvironments[currentEnvironment[0]].getFingerprints().length);
         break;
 
       case 0xC6:
@@ -606,8 +611,9 @@ public final class Gpg extends Applet {
         break;
 
       case 0xCD:
-        offset = Util.arrayCopyNonAtomic(generationDates, (short) 0, buffer, (short) 0,
-                                         (short) generationDates.length);
+        offset = Util.arrayCopyNonAtomic(securityEnvironments[currentEnvironment[0]].getGenerationDates(),
+                                         (short) 0, buffer, (short) 0,
+                                         (short) securityEnvironments[currentEnvironment[0]].getGenerationDates().length);
         break;
 
       // Private use objects.
@@ -660,9 +666,9 @@ public final class Gpg extends Applet {
     getPWStatusBytes(out, offset);
     offset += 7;
 
-    offset = addShortTLV((short) 0xC5, fingerprints, out, offset);
+    offset = addShortTLV((short) 0xC5, securityEnvironments[currentEnvironment[0]].getFingerprints(), out, offset);
     offset = addShortTLV((short) 0xC6, caFingerprints, out, offset);
-    offset = addShortTLV((short) 0xCD, generationDates, out, offset);
+    offset = addShortTLV((short) 0xCD, securityEnvironments[currentEnvironment[0]].getGenerationDates(), out, offset);
     return offset;
   }
 
@@ -770,7 +776,7 @@ public final class Gpg extends Applet {
       case 0xC7:
       case 0xC8:
       case 0xC9:
-        storeFixedLength(apdu, fingerprints, (short) (20 * (tag - 0xC7)), (short) 20);
+        securityEnvironments[currentEnvironment[0]].setFingerprints(apdu);
         break;
 
       case 0xCA:
@@ -782,7 +788,7 @@ public final class Gpg extends Applet {
       case 0xCE:
       case 0xCF:
       case 0xD0:
-        storeFixedLength(apdu, generationDates, (short) (4 * (tag - 0xCE)), (short) 4);
+        securityEnvironments[currentEnvironment[0]].setGenerationDates(apdu);
         break;
 
       case 0xD3:
@@ -839,10 +845,9 @@ public final class Gpg extends Applet {
     Util.arrayCopy(buffer, ISO7816.OFFSET_CDATA, destination, offset, length);
     if (maximum_length > length) {
       Util.arrayFillNonAtomic(destination, (short) (offset + length),
-                              (short) (maximum_length - length), (byte) 0);
+              (short) (maximum_length - length), (byte) 0);
     }
   }
-
 
   // Initialize a key part and return the offset to the next byte that should be used.
   private short addKeyPart(byte part, byte[] data, short offset, KeyPair key) {
@@ -881,22 +886,9 @@ public final class Gpg extends Applet {
     return (short) (offset + size);
   }
 
-  private KeyPair getKey(byte type) {
-    switch (type) {
-      case (byte) 0xB6:
-        return signatureKey;
-      case (byte) 0xB8:
-        return confidentialityKey;
-      case (byte) 0xA4:
-        return authenticationKey;
-    }
-    ISOException.throwIt(ISO7816.SW_DATA_INVALID);
-    return signatureKey;  // Make the compiler happy.
-  }
-
   private short addKeyPart(byte[] data, short offset) {
     return addKeyPart(commandChainingBuffer[TEMP_PUT_KEY_KEY_CHUNK], data, offset,
-                      getKey(commandChainingBuffer[TEMP_PUT_KEY_KEY_TYPE]));
+                      securityEnvironments[currentEnvironment[0]].getKey(commandChainingBuffer[TEMP_PUT_KEY_KEY_TYPE]));
   }
 
   /**
@@ -944,14 +936,12 @@ public final class Gpg extends Applet {
       pos = (short) (ISO7816.OFFSET_CDATA + expectedRSAKeyImportFormat.length);
       // Clear the existing key.
       JCSystem.beginTransaction();
-      KeyPair key = getKey(commandChainingBuffer[TEMP_PUT_KEY_KEY_TYPE]);
+      KeyPair key = securityEnvironments[currentEnvironment[0]].getKey(commandChainingBuffer[TEMP_PUT_KEY_KEY_TYPE]);
       key.getPrivate().clearKey();
       key.getPublic().clearKey();
       if (commandChainingBuffer[TEMP_PUT_KEY_KEY_TYPE] == (byte) 0xB6) {
         // Reset the signature counter.
-        signatureCounter[0] = (byte) 0;
-        signatureCounter[1] = (byte) 0;
-        signatureCounter[2] = (byte) 0;
+        securityEnvironments[currentEnvironment[0]].resetSignatureCounter();
       }
       JCSystem.commitTransaction();
 
@@ -1031,31 +1021,17 @@ public final class Gpg extends Applet {
     if (!pinSubmitted[PIN_INDEX_PW1] || !pins[PIN_INDEX_PW1].isValidated()) {
       ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
     }
-    if (!signatureKey.getPrivate().isInitialized()) {
+    if (!securityEnvironments[currentEnvironment[0]].getSignatureKey().getPrivate().isInitialized()) {
       ISOException.throwIt(ISO7816.SW_FILE_NOT_FOUND);
     }
     if (pinValidForMultipleSignatures == (byte) 0) {
       pinSubmitted[PIN_INDEX_PW1] = false;
     }
 
-    cipherRSA.init(signatureKey.getPrivate(), Cipher.MODE_ENCRYPT);
+    cipherRSA.init(securityEnvironments[currentEnvironment[0]].getSignatureKey().getPrivate(),
+                   Cipher.MODE_ENCRYPT);
     cipherRSA.doFinal(buffer, ISO7816.OFFSET_CDATA, length, buffer, (short) 0);
-    JCSystem.beginTransaction();
-    if (signatureCounter[2] != (byte) 0xFF) {
-      signatureCounter[2] = (byte) ((signatureCounter[2] & 0xFF) + 1);
-    } else {
-      signatureCounter[2] = 0;
-      if (signatureCounter[1] != (byte) 0xFF) {
-        signatureCounter[1] = (byte) ((signatureCounter[1] & 0xFF) + 1);
-      } else if (signatureCounter[0] != (byte) 0xFF) {
-        signatureCounter[1] = 0;
-        signatureCounter[0] = (byte) ((signatureCounter[0] & 0xFF) + 1);
-      } else {
-        JCSystem.abortTransaction();
-        ISOException.throwIt(ISO7816.SW_FILE_FULL);
-      }
-    }
-    JCSystem.commitTransaction();
+    securityEnvironments[currentEnvironment[0]].incrementSignatureCounter();
     apdu.setOutgoingAndSend((short) 0, RSA_KEY_LENGTH_BYTES);
   }
 
@@ -1065,7 +1041,7 @@ public final class Gpg extends Applet {
     if (!pins[PIN_INDEX_PW1].isValidated() || !pinSubmitted[1]) {
       ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
     }
-    if (!confidentialityKey.getPrivate().isInitialized()) {
+    if (!securityEnvironments[currentEnvironment[0]].getConfidentialityKey().getPrivate().isInitialized()) {
       ISOException.throwIt(ISO7816.SW_FILE_NOT_FOUND);
     }
     boolean firstCommand = (commandChainingBuffer[TEMP_INS] != buffer[ISO7816.OFFSET_INS]);
@@ -1093,7 +1069,8 @@ public final class Gpg extends Applet {
       return;  // For compatibily with GPG
     }
     // We have enough bytes to decrypt.
-    cipherRSA.init(confidentialityKey.getPrivate(), Cipher.MODE_DECRYPT);
+    cipherRSA.init(securityEnvironments[currentEnvironment[0]].getConfidentialityKey().getPrivate(),
+                   Cipher.MODE_DECRYPT);
     len = cipherRSA.doFinal(commandChainingBuffer, TEMP_GET_RESPONSE_DATA, RSA_KEY_LENGTH_BYTES,
                             buffer, (short) 0);
     apdu.setOutgoingAndSend((short) 0, len);
@@ -1109,10 +1086,11 @@ public final class Gpg extends Applet {
     if (len > (short) 102 || len != (buffer[ISO7816.OFFSET_LC] & 0xFF)) {
       ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
     }
-    if (!authenticationKey.getPrivate().isInitialized()) {
+    if (!securityEnvironments[currentEnvironment[0]].getAuthenticationKey().getPrivate().isInitialized()) {
       ISOException.throwIt(ISO7816.SW_FILE_NOT_FOUND);
     }
-    cipherRSA.init(authenticationKey.getPrivate(), Cipher.MODE_ENCRYPT);
+    cipherRSA.init(securityEnvironments[currentEnvironment[0]].getAuthenticationKey().getPrivate(),
+                   Cipher.MODE_ENCRYPT);
     cipherRSA.doFinal(buffer, ISO7816.OFFSET_CDATA, len, buffer, (short) 0);
     apdu.setOutgoingAndSend((short) 0, RSA_KEY_LENGTH_BYTES);
   }
@@ -1125,7 +1103,7 @@ public final class Gpg extends Applet {
     if (apdu.setIncomingAndReceive() != 2) {
       ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
     }
-    KeyPair key = getKey(buffer[ISO7816.OFFSET_CDATA]);
+    KeyPair key = securityEnvironments[currentEnvironment[0]].getKey(buffer[ISO7816.OFFSET_CDATA]);
     if (buffer[ISO7816.OFFSET_P1] == (byte) 0x81) {
       if (!(key.getPublic()).isInitialized()) {
         ISOException.throwIt(ISO7816.SW_FILE_NOT_FOUND);
@@ -1136,11 +1114,7 @@ public final class Gpg extends Applet {
       }
       JCSystem.beginTransaction();
       key.genKeyPair();
-      if (buffer[ISO7816.OFFSET_CDATA] == (byte)0xB6) {
-        signatureCounter[0] = 0;
-        signatureCounter[1] = 0;
-        signatureCounter[2] = 0;
-      }
+      securityEnvironments[currentEnvironment[0]].resetSignatureCounter();
       JCSystem.commitTransaction();
     }
     // Send the TLV data and public exponent using the APDU buffer.
@@ -1186,6 +1160,14 @@ public final class Gpg extends Applet {
         pins[PIN_INDEX_PW3].getTriesRemaining() > 0) {
       ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
     }
+
+    for (byte i = 0 ; i < securityEnvironments.length ; i++) {
+      if (securityEnvironments[i] != null) {
+        securityEnvironments[i].clear();
+        securityEnvironments[i] = null;
+      }
+    }
+
     terminated = true;
   }
 
@@ -1202,12 +1184,6 @@ public final class Gpg extends Applet {
     // Since the card will not do anything until we clear the terminated bool we can erase the
     // data without using transactions (and most likely the transaction buffer would not be
     // large enough.
-    signatureKey.getPrivate().clearKey();
-    signatureKey.getPublic().clearKey();
-    confidentialityKey.getPrivate().clearKey();
-    confidentialityKey.getPublic().clearKey();
-    authenticationKey.getPrivate().clearKey();
-    authenticationKey.getPublic().clearKey();
 
     pins[PIN_INDEX_PW1].update(defaultPIN, (short) 0, MIN_PIN1_LENGTH);
     pinLength[PIN_INDEX_PW1] = MIN_PIN1_LENGTH;
@@ -1216,20 +1192,19 @@ public final class Gpg extends Applet {
     // The resetting code is disabled by default.
     pinLength[PIN_INDEX_RC] = 0;
 
+    securityEnvironments[0] = new SecurityEnvironment();
+
     Util.arrayFillNonAtomic(privateDO1, (short)0, (short)privateDO1.length, (byte)0);
     Util.arrayFillNonAtomic(privateDO2, (short)0, (short)privateDO2.length, (byte)0);
     Util.arrayFillNonAtomic(privateDO3, (short)0, (short)privateDO3.length, (byte)0);
     Util.arrayFillNonAtomic(privateDO4, (short)0, (short)privateDO4.length, (byte)0);
 
-    Util.arrayFillNonAtomic(loginData, (short)0, (short)loginData.length, (byte)0);
-    Util.arrayFillNonAtomic(url, (short)0, (short)url.length, (byte)0);
-    Util.arrayFillNonAtomic(name, (short)0, (short)name.length, (byte)0);
+    Util.arrayFillNonAtomic(loginData, (short) 0, (short) loginData.length, (byte) 0);
+    Util.arrayFillNonAtomic(url, (short) 0, (short) url.length, (byte) 0);
+    Util.arrayFillNonAtomic(name, (short) 0, (short) name.length, (byte) 0);
     Util.arrayFillNonAtomic(language, (short)0, (short)language.length, (byte)0);
     sex[0] = (byte) 0x39;
-    Util.arrayFillNonAtomic(fingerprints, (short)0, (short)fingerprints.length, (byte)0);
     Util.arrayFillNonAtomic(caFingerprints, (short)0, (short)caFingerprints.length, (byte)0);
-    Util.arrayFillNonAtomic(generationDates, (short)0, (short)generationDates.length, (byte)0);
-    Util.arrayFillNonAtomic(signatureCounter, (short)0, (short)signatureCounter.length, (byte)0);
     pinValidForMultipleSignatures = (byte) 0;
     terminated = false;
   }
