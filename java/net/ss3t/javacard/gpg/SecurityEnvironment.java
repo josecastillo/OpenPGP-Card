@@ -29,9 +29,6 @@ public class SecurityEnvironment extends Object {
 
   private final static byte[] defaultSignatureCounter = {0, 0, 0};
 
-  public SecurityEnvironment() {
-  }
-
   public void clear() {
     if (signatureKey != null) {
       signatureKey.getPrivate().clearKey();

@@ -49,6 +49,7 @@ import javacardx.crypto.Cipher;
 public final class Gpg extends Applet {
 
   public static final byte CMD_VERIFY = 0x20;
+  public static final byte CMD_MANAGE_SECURITY_ENVIRONMENT = 0x22;
   public static final byte CMD_CHANGE_REFERENCE_DATA = 0x24;
   public static final byte CMD_COMPUTE_PSO = 0x2A;
   public static final byte CMD_RESET_RETRY_COUNTER = 0x2C;
@@ -64,6 +65,11 @@ public final class Gpg extends Applet {
 
   private static final short SW_PIN_FAILED_00 = 0x63C0;
   private static final short SW_PIN_BLOCKED = 0x6983;
+
+  private static final byte MAX_SECURITY_ENVIRONMENTS = 20;
+  private static final byte P1_RESTORE_ENVIRONMENT = (byte)0xF7;
+  private static final byte P1_ERASE_ENVIRONMENT = (byte)0xF8;
+  private static final short SW_REFERENCED_DATA_NOT_FOUND = 0x6A88;
 
   public static final byte MAX_TRIES_PIN1 = 3;
   public static final byte MAX_TRIES_RC = 3;
@@ -159,7 +165,7 @@ public final class Gpg extends Applet {
   private byte pinValidForMultipleSignatures;
   private final byte[] commandChainingBuffer;
   private final SecurityEnvironment[] securityEnvironments;
-  private byte currentEnvironment[];
+  private final byte currentEnvironment[];
   private final Cipher cipherRSA;
   private final RandomData randomData;
   private boolean terminated = false;
@@ -201,9 +207,15 @@ public final class Gpg extends Applet {
     caFingerprints = new byte[(short) 60];
     pinValidForMultipleSignatures = (byte) 0;
 
-    securityEnvironments = new SecurityEnvironment[20];
-    securityEnvironments[0] = new SecurityEnvironment();
+    securityEnvironments = new SecurityEnvironment[MAX_SECURITY_ENVIRONMENTS];
     currentEnvironment = JCSystem.makeTransientByteArray((short) 1, JCSystem.CLEAR_ON_DESELECT);
+
+    // Instantiate empty security environments at each index
+    for (byte i = 0 ; i < securityEnvironments.length ; i++) {
+      securityEnvironments[i] = new SecurityEnvironment();
+    }
+
+
     cipherRSA = Cipher.getInstance(Cipher.ALG_RSA_PKCS1, false);
     randomData = RandomData.getInstance(RandomData.ALG_SECURE_RANDOM);
 
@@ -293,6 +305,10 @@ public final class Gpg extends Applet {
     switch (ins) {
       case CMD_VERIFY:
         verify(apdu);
+        break;
+
+      case CMD_MANAGE_SECURITY_ENVIRONMENT:
+        manageSecurityEnvironment(apdu);
         break;
 
       case CMD_CHANGE_REFERENCE_DATA:
@@ -396,6 +412,43 @@ public final class Gpg extends Applet {
       ISOException.throwIt(ISO7816.SW_NO_ERROR);
     }
     ISOException.throwIt((short) (SW_PIN_FAILED_00 + pins[pinOffset].getTriesRemaining()));
+  }
+
+  /**
+   * MANAGE SECURITY ENVIRONMENT APDU implementation.
+   */
+  private void manageSecurityEnvironment(APDU apdu) {
+    byte[] buffer = apdu.getBuffer();
+    byte environment = buffer[ISO7816.OFFSET_P2];
+
+    // We throw an exception if the security environment is out of range.
+    if (environment < 1 || environment > MAX_SECURITY_ENVIRONMENTS) {
+      ISOException.throwIt(SW_REFERENCED_DATA_NOT_FOUND);
+    }
+
+    // Done with ISO stuff; translate this to a zero-indexed value for internal use.
+    environment--;
+
+    byte options = buffer[ISO7816.OFFSET_P1];
+
+    switch (options) {
+      case P1_RESTORE_ENVIRONMENT:
+        // No verification required to swap between security environments; you might need to do this
+        // in order to read all the key fingerprints available on the card.
+        currentEnvironment[0] = environment;
+        break;
+      case P1_ERASE_ENVIRONMENT:
+        // PW3 required to erase data from a security environment.
+        if (!pins[PIN_INDEX_PW3].isValidated()) {
+          ISOException.throwIt(ISO7816.SW_SECURITY_STATUS_NOT_SATISFIED);
+        }
+        if (securityEnvironments[environment] != null) {
+          securityEnvironments[environment].clear();
+        }
+        break;
+      default:
+        ISOException.throwIt(ISO7816.SW_WRONG_P1P2);
+    }
   }
 
   /**
@@ -1117,7 +1170,10 @@ public final class Gpg extends Applet {
       }
       JCSystem.beginTransaction();
       key.genKeyPair();
-      securityEnvironments[currentEnvironment[0]].resetSignatureCounter();
+      // If we are generating a new signature key, reset the signature counter.
+      if (buffer[ISO7816.OFFSET_CDATA] == 0xB6) {
+        securityEnvironments[currentEnvironment[0]].resetSignatureCounter();
+      }
       JCSystem.commitTransaction();
     }
     // Send the TLV data and public exponent using the APDU buffer.
@@ -1172,6 +1228,8 @@ public final class Gpg extends Applet {
     }
 
     terminated = true;
+
+    JCSystem.requestObjectDeletion();
   }
 
   /**
@@ -1195,7 +1253,9 @@ public final class Gpg extends Applet {
     // The resetting code is disabled by default.
     pinLength[PIN_INDEX_RC] = 0;
 
-    securityEnvironments[0] = new SecurityEnvironment();
+    for (byte i = 0 ; i < securityEnvironments.length ; i++) {
+      securityEnvironments[i] = new SecurityEnvironment();
+    }
 
     Util.arrayFillNonAtomic(privateDO1, (short)0, (short)privateDO1.length, (byte)0);
     Util.arrayFillNonAtomic(privateDO2, (short)0, (short)privateDO2.length, (byte)0);
