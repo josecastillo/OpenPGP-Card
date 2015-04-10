@@ -489,8 +489,7 @@ public final class Gpg extends Applet {
   }
 
   /**
-   * GET DATA APDU implementation. The spec isn't clear about which DOs are readable individually so
-   * more tags are readable than strictly necessary.
+   * GET DATA APDU implementation.
    */
   private void getData(APDU apdu) {
     byte[] buffer = apdu.getBuffer();
@@ -502,24 +501,9 @@ public final class Gpg extends Applet {
         offset = JCSystem.getAID().getBytes(buffer, (short) 0);
         break;
 
-      case 0x5B:
-        offset = Util.arrayCopyNonAtomic(name, (short) 1, buffer, (short) 0,
-                                         (short) (name[0] & 0xFF));
-        break;
-
       case 0x5E:
         offset = Util.arrayCopyNonAtomic(loginData, (short) 1, buffer, (short) 0,
                                          (short) (loginData[0] & 0xFF));
-        break;
-
-      case 0x5F2D:
-        offset = Util.arrayCopyNonAtomic(language, (short) 1, buffer, (short) 0,
-                                         (short) (language[0] & 0xFF));
-        break;
-
-      case 0x5F35:
-        buffer[0] = sex[0];
-        offset = 1;
         break;
 
       case 0x5F50:
@@ -566,48 +550,12 @@ public final class Gpg extends Applet {
         buffer[oldpos] = (byte) (offset - oldpos - 1);
         break;
 
-      case 0x73:
-        offset = addDiscretionaryDataObjects(buffer, (short) 0);
-        break;
-
       case 0x7A:
         offset = addShortTLV((short) 0x93, signatureCounter, buffer, offset);
         break;
 
-      case 0x93:
-        offset = Util.arrayCopyNonAtomic(signatureCounter, (short) 0, buffer, (short) 0,
-                                         (short) signatureCounter.length);
-        break;
-
-      case 0xC0:
-        offset = Util.arrayCopyNonAtomic(extendedCapabilities, (short) 0, buffer, (short) 0,
-                                         (short) extendedCapabilities.length);
-        break;
-
-      case 0xC1:
-      case 0xC2:
-      case 0xC3:
-        offset = Util.arrayCopyNonAtomic(algorithmAttributes, (short) 0, buffer, (short) 0,
-                                         (short) algorithmAttributes.length);
-        break;
-
       case 0xC4:
         offset = getPWStatusBytes(buffer, (short) 0);
-        break;
-
-      case 0xC5:
-        offset = Util.arrayCopyNonAtomic(fingerprints, (short) 0, buffer, (short) 0,
-                                         (short) fingerprints.length);
-        break;
-
-      case 0xC6:
-        offset = Util.arrayCopyNonAtomic(caFingerprints, (short) 0, buffer, (short) 0,
-                                         (short) caFingerprints.length);
-        break;
-
-      case 0xCD:
-        offset = Util.arrayCopyNonAtomic(generationDates, (short) 0, buffer, (short) 0,
-                                         (short) generationDates.length);
         break;
 
       // Private use objects.
