@@ -278,12 +278,6 @@ public final class Gpg extends Applet {
     }
 
     if (selectingApplet()) {
-      short aidLength = JCSystem.getAID().getBytes(buffer, (short) 4);
-      buffer[0] = 0x6F;
-      buffer[1] = (byte) (2 + aidLength);
-      buffer[2] = (byte) 0x84;
-      buffer[3] = (byte) (aidLength);
-      apdu.setOutgoingAndSend((short) 0, (short) (4 + aidLength));
       if (terminated) {
         ISOException.throwIt((short)0x6285);
       }
