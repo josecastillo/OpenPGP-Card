@@ -28,6 +28,8 @@ import javacard.security.RSAPublicKey;
 import javacard.security.RandomData;
 import javacardx.crypto.Cipher;
 
+import org.globalplatform.GPSystem;
+
 /**
  * Implements the GPG Card v 2.0.1 specification without using secure channels or Global Platform
  * for portability.
@@ -101,12 +103,16 @@ public final class Gpg extends Applet {
   private static final byte TEMP_GET_RESPONSE_LENGTH = 3;
   private static final byte TEMP_GET_RESPONSE_DATA = 5;
 
-  // C0: Selection by full or partial DF name.
-  // 40: Data coding byte, not used by GPG.
-  // 80: Command chaining
-  // 00: No life cycle management.
-  private final static byte[] historicalBytes = {
-      0, 0x73, (byte) 0xC0, 0x40, (byte) 0x80, 0, (byte) 0x90, 0};
+
+  private static byte[] historicalBytes = {
+      0, // Category byte; compact TLV objects to follow
+      0x73, // Card capabilities; length 3
+      (byte) 0xC0, // Selection by full or partial DF name.
+      0x40, // Data coding byte, not used by GPG.
+      (byte) 0x80, // Command chaining
+      0x05, // Life cycle management, commands TERMINATE DF and ACTIVATE FILE are available.
+      (byte) 0x90, 0x00 // Status word indicating success
+  };
 
   private final static byte[] extendedCapabilities = {
       (byte) 0x78,  // Get Challenge, Key Import, PW1 status changeable, Private DO
@@ -175,14 +181,11 @@ public final class Gpg extends Applet {
     pinLength = new byte[3];
     pins = new OwnerPIN[3];
     pins[PIN_INDEX_PW1] = new OwnerPIN(MAX_TRIES_PIN1, MAX_PIN_LENGTH);
-    pins[PIN_INDEX_PW1].update(defaultPIN, (short) 0, MIN_PIN1_LENGTH);
     pinLength[PIN_INDEX_PW1] = MIN_PIN1_LENGTH;
     pins[PIN_INDEX_PW3] = new OwnerPIN(MAX_TRIES_PIN3, MAX_PIN_LENGTH);
-    pins[PIN_INDEX_PW3].update(defaultPIN, (short) 0, MIN_PIN3_LENGTH);
     pinLength[PIN_INDEX_PW3] = MIN_PIN3_LENGTH;
     // The resetting code is disabled by default.
     pins[PIN_INDEX_RC] = new OwnerPIN(MAX_TRIES_RC, MAX_PIN_LENGTH);
-    pinLength[PIN_INDEX_RC] = 0;
     pinSubmitted = JCSystem.makeTransientBooleanArray((short) 2, JCSystem.CLEAR_ON_DESELECT);
 
     commandChainingBuffer =
@@ -199,7 +202,6 @@ public final class Gpg extends Applet {
     name = new byte[(short) 40];
     language = new byte[(short) 9];
     sex = new byte[(short) 1];
-    sex[0] = (byte) 0x39;
     fingerprints = new byte[(short) 60];
     caFingerprints = new byte[(short) 60];
     generationDates = new byte[(short) 12];
@@ -211,6 +213,10 @@ public final class Gpg extends Applet {
     authenticationKey = new KeyPair(KeyPair.ALG_RSA_CRT, (short) 2048);
     cipherRSA = Cipher.getInstance(Cipher.ALG_RSA_PKCS1, false);
     randomData = RandomData.getInstance(RandomData.ALG_SECURE_RANDOM);
+
+    // Card will not be active until an ACTIVATE FILE command is issued.
+    // This sets default values, as well as the card's ATR Historical Bytes
+    terminated = true;
 
     register();
   }
@@ -1186,7 +1192,10 @@ public final class Gpg extends Applet {
         pins[PIN_INDEX_PW3].getTriesRemaining() > 0) {
       ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
     }
+    JCSystem.beginTransaction();
+    historicalBytes[(byte)(historicalBytes.length - 3)] = 0x03;
     terminated = true;
+    JCSystem.commitTransaction();
   }
 
   /**
@@ -1198,6 +1207,8 @@ public final class Gpg extends Applet {
     if (!terminated) {
       return;
     }
+
+    GPSystem.setATRHistBytes(historicalBytes, (short)0, (byte)historicalBytes.length);
 
     // Since the card will not do anything until we clear the terminated bool we can erase the
     // data without using transactions (and most likely the transaction buffer would not be
@@ -1231,7 +1242,11 @@ public final class Gpg extends Applet {
     Util.arrayFillNonAtomic(generationDates, (short)0, (short)generationDates.length, (byte)0);
     Util.arrayFillNonAtomic(signatureCounter, (short)0, (short)signatureCounter.length, (byte)0);
     pinValidForMultipleSignatures = (byte) 0;
+
+    JCSystem.beginTransaction();
+    historicalBytes[(byte)(historicalBytes.length - 3)] = 0x05;
     terminated = false;
+    JCSystem.commitTransaction();
   }
 }
 
