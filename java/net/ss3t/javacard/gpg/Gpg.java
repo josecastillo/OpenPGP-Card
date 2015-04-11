@@ -518,9 +518,11 @@ public final class Gpg extends Applet {
 
       // Cardholder related.
       case 0x65:
-        buffer[0] = 0x5B;
-        buffer[1] = name[0];
-        offset = Util.arrayCopyNonAtomic(name, (short) 1, buffer, (short) 2,
+        buffer[offset++] = 0x65;
+        buffer[offset++] = 0x00;
+        buffer[offset++] = 0x5B;
+        buffer[offset++] = name[0];
+        offset = Util.arrayCopyNonAtomic(name, (short) 1, buffer, offset,
                                          (short) (name[0] & 0xFF));
 
         buffer[offset++] = 0x5F;
@@ -533,14 +535,20 @@ public final class Gpg extends Applet {
         buffer[offset++] = 0x35;
         buffer[offset++] = 1;
         buffer[offset++] = sex[0];
+
+        // Overall length is final offset minus initial tag+length
+        buffer[1] = (byte)(offset - 2);
         break;
 
       // Application related data.
       case 0x6E:
-        buffer[0] = 0x4F;
-        buffer[1] = JCSystem.getAID().getBytes(buffer, (short) 2);
-        offset = (short) (2 + buffer[1]);
-
+        buffer[offset++] = 0x6E;
+        buffer[offset++] = (byte) 0x81;
+        buffer[offset++] = 0; // placeholder for length byte
+        buffer[offset++] = 0x4F;
+        byte aidLength = JCSystem.getAID().getBytes(buffer, (short) (offset + 1));
+        buffer[offset++] = aidLength;
+        offset += aidLength;
         offset = addShortTLV((short) 0x5F52, historicalBytes, buffer, offset);
 
         buffer[offset++] = (byte) 0x73;
@@ -548,9 +556,14 @@ public final class Gpg extends Applet {
         short oldpos = offset;
         offset = addDiscretionaryDataObjects(buffer, (short) (offset + 1));
         buffer[oldpos] = (byte) (offset - oldpos - 1);
+
+        // Overall length is final offset minus initial tag+length
+        buffer[2] = (byte)(offset - 3);
         break;
 
       case 0x7A:
+        buffer[offset++] = 0x7A;
+        buffer[offset++] = (byte) 0x05; // Fixed length; tag + length + 3 bytes
         offset = addShortTLV((short) 0x93, signatureCounter, buffer, offset);
         break;
 
