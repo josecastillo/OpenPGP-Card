@@ -374,6 +374,16 @@ public final class Gpg extends Applet {
     byte minLength = MIN_PIN1_LENGTH;
     if (type == (byte) 0x83) {
       pinOffset = PIN_INDEX_PW3;
+      // WARNING: the next four lines are slightly against the OpenPGP Smart Card spec.
+      // If the card is being accessed over a contactless interface, we prevent VERIFY of the Admin PIN if it could
+      // block the PW3. An attacker could mount a denial-of-service attack against the card by repeadly transmitting an
+      // incorrect PW3. Thus attempting to VERIFY PW3 over a contactless interface will throw an error if only one try
+      // remains for PW3. Admin commands over the contactless interface will eventually be handled via secure messaging.
+      byte protocolMedia = (byte) (APDU.getProtocol() & APDU.PROTOCOL_MEDIA_MASK);
+      if ((protocolMedia == APDU.PROTOCOL_MEDIA_CONTACTLESS_TYPE_A ||
+          protocolMedia == APDU.PROTOCOL_MEDIA_CONTACTLESS_TYPE_B) && pins[pinOffset].getTriesRemaining() <= 1) {
+        ISOException.throwIt(ISO7816.SW_FUNC_NOT_SUPPORTED);
+      }
       minLength = MIN_PIN3_LENGTH;
     } else if (type != (byte) 0x81 && type != (byte) 0x82) {
       ISOException.throwIt(ISO7816.SW_INCORRECT_P1P2);
